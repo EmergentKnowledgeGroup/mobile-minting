@@ -52,6 +52,9 @@ export const getRodeoMintByAddressAndChain = async (
             contractAddress
             name
             description
+            mintedCount
+            uniqueMintersCount
+            commentCount
             tokenId
             saleConfiguration {
               ... on TokenTimedSaleConfiguration {
@@ -72,9 +75,17 @@ export const getRodeoMintByAddressAndChain = async (
             media {
               ... on ImageMedia {
                 url
+                width
+                height
+                blurHash
+                imageMimeType: mimeType
               }
               ... on VideoMedia {
                 url
+                previewUrl
+                width
+                height
+                videoMimeType: mimeType
               }
             }
           }
