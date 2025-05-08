@@ -1,4 +1,3 @@
-import { AxiosInstance, AxiosResponse } from 'axios';
 import { MintContractOptions, MintIngestionErrorName, MintIngestorError, MintIngestorResources } from '../../lib';
 
 /**
@@ -37,7 +36,7 @@ export const getRodeoMintByAddressAndChain = async (
   contractAddress: string,
   tokenId: string,
 ) => {
-  let response: AxiosResponse;
+  let response;
   try {
     const url = 'https://api.rodeo.club/graphql';
 
@@ -47,105 +46,37 @@ export const getRodeoMintByAddressAndChain = async (
 
     const data = {
       query: `
-        query ShopPage($tokenFilter: TokenInput!, $page: Int, $perPage: Limit) {
+        query ShopPage($tokenFilter: TokenInput!) {
           token(by: {token: $tokenFilter}, filters: {existenceStatus: ANY}) {
-            ...Token
-            isDeleted
-          }
-          tokenHolders(by: {token: $tokenFilter}, page: $page, perPage: $perPage) {
-            tokenHolderBalances {
-              items {
-                ...TokenHolder
+            chainId
+            contractAddress
+            name
+            description
+            tokenId
+            saleConfiguration {
+              ... on TokenTimedSaleConfiguration {
+                startTime
+                endTime
+                saleTermsId
               }
-              page
-              totalItems
-              totalPages
             }
-            firstMinter {
-              ...UserWallet
+            creator {
+              user {
+                displayName
+                imageUrl
+              }
+              wallet {
+                address
+              }
             }
-          }
-        }
-        
-        fragment Token on ERC1155Token {
-          chainId
-          contractAddress
-          name
-          description
-          mintedCount
-          uniqueMintersCount
-          commentCount
-          tokenId
-          saleConfiguration {
-            ...SaleConfiguration
-          }
-          creator {
-            ...UserWallet
-          }
-          media {
-            ...Media
-          }
-        }
-        
-    
-        fragment SaleConfiguration on TokenTimedSaleConfiguration {
-          ... on TokenTimedSaleConfiguration {
-            saleType
-            status
-            startTime
-            endTime
-            mintPrice
-            saleTermsId
-          }
-        }
-        
-    
-        fragment UserWallet on UserWallet {
-          user {
-            ...User
-          }
-          wallet {
-            address
-          }
-        }
-        
-    
-        fragment User on User {
-          id
-          displayName
-          username
-          imageUrl
-        }
-        
-    
-        fragment Media on Media {
-          __typename
-          ... on ImageMedia {
-            processingStatus
-            sourceUrl
-            url
-            width
-            height
-            blurHash
-            imageMimeType: mimeType
-          }
-          ... on VideoMedia {
-            previewUrl
-            processingStatus
-            sourceUrl
-            staticUrl
-            url
-            width
-            height
-            videoMimeType: mimeType
-          }
-        }
-        
-    
-        fragment TokenHolder on TokenHolderBalance {
-          count: tokenCount
-          holder {
-            ...UserWallet
+            media {
+              ... on ImageMedia {
+                url
+              }
+              ... on VideoMedia {
+                url
+              }
+            }
           }
         }
       `,
@@ -154,35 +85,38 @@ export const getRodeoMintByAddressAndChain = async (
           chainId,
           contractAddress,
           tokenId: parseInt(tokenId),
-        },
+        }
       },
       operationName: 'ShopPage',
     };
 
     response = await resources.fetcher.post(url, data, { headers });
   } catch (error) {
-    throw new MintIngestorError(MintIngestionErrorName.CouldNotResolveMint, 'Could not query mint from Transient API');
+    console.error('Rodeo API error:', error);
+    throw new MintIngestorError(MintIngestionErrorName.CouldNotResolveMint, 'Could not query mint from Rodeo API');
   }
-  const data = response.data.data;
-  if (!data || !data.token) {
+  const responseData = response.data;
+  if (!responseData || !responseData.data || !responseData.data.token) {
+    console.error('Rodeo API response:', responseData);
     throw new MintIngestorError(MintIngestionErrorName.CouldNotResolveMint, 'Project not found');
   }
 
+  const token = responseData.data.token;
   return {
-    chainId: data.token.chainId,
-    contractAddress: data.token.contractAddress,
-    image: data.token.media.url,
-    name: data.token.name,
+    chainId: token.chainId,
+    contractAddress: token.contractAddress,
+    image: token.media?.url || '',
+    name: token.name,
     mintAddress: '0x132363a3bbf47E06CF642dd18E9173E364546C99',
-    description: data.token.description,
-    public_sale_start_at: data.token.saleConfiguration.startTime,
-    public_sale_end_at: data.token.saleConfiguration.endTime,
-    tokenId: data.token.tokenId,
-    sale_terms_id: data.token.saleConfiguration.saleTermsId as number,
+    description: token.description || '',
+    public_sale_start_at: token.saleConfiguration?.startTime,
+    public_sale_end_at: token.saleConfiguration?.endTime,
+    tokenId: token.tokenId.toString(),
+    sale_terms_id: token.saleConfiguration?.saleTermsId,
     user: {
-      name: data.token.creator.user.displayName,
-      image: data.token.creator.user.imageUrl,
-      address: data.token.creator.wallet.address,
+      name: token.creator?.user?.displayName || 'Unknown',
+      image: token.creator?.user?.imageUrl || '',
+      address: token.creator?.wallet?.address || '',
     },
   };
 };

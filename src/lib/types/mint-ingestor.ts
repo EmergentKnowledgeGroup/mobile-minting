@@ -1,6 +1,5 @@
 import { Alchemy } from 'alchemy-sdk';
 import { MintTemplate } from './mint-template';
-import { AxiosInstance } from 'axios';
 
 export type MintContractOptions = {
   chainId: number;
@@ -18,9 +17,14 @@ interface MintIngestor {
   configuration?: MintIngestorOptions;
 }
 
+// Generic HTTP client interface that matches both axios and fetch-like clients
+interface HttpClient {
+  post(url: string, data: any, config?: any): Promise<{ data: any }>;
+}
+
 type MintIngestorResources = {
   alchemy: Alchemy;
-  fetcher: AxiosInstance;
+  fetcher: HttpClient;
 };
 
 export type MintIngestorOptions = {
