@@ -30,13 +30,13 @@ export type HighlightMintVector = {
   price: string;
   currency: string;
   chainId: number;
-  onchainMintVectorId: string;
+  onchainMintVectorId: string | null;
   paymentCurrency?: {
     address: string;
     decimals: number;
     symbol: string;
     type: string;
-    mintFee: string;
+    mintFee: string | null;
   } | null;
 };
 
