@@ -2,12 +2,11 @@ import { MintContractOptions, MintIngestor, MintIngestorResources } from '../../
 import { MintIngestionErrorName, MintIngestorError } from '../../lib/types/mint-ingestor-error';
 import { MintInstructionType, MintTemplate } from '../../lib/types/mint-template';
 import { MintTemplateBuilder } from '../../lib/builder/mint-template-builder';
-import { getHighlightMetadata, getHighlightMintPriceInWei } from './onchain-metadata';
 import {
   getHighlightCollectionByAddress,
   getHighlightCollectionById,
-  getHighlightCollectionOwnerDetails,
-  getHighlightVectorId,
+  getHighlightMintVectorId,
+  getHighlightVectorPriceInWei,
 } from './offchain-metadata';
 import { MINT_CONTRACT_ABI } from './abi';
 
@@ -64,10 +63,7 @@ export class HighlightIngestor implements MintIngestor {
     const contractAddress = collection.contract;
     const description = collection?.description;
 
-    mintBuilder
-      .setName(collection.name)
-      .setDescription(description)
-      .setFeaturedImageUrl(collection.image.split('?')[0]);
+    mintBuilder.setName(collection.name).setDescription(description).setFeaturedImageUrl(collection.image.split('?')[0]);
     mintBuilder.setMintOutputContract({ chainId: 8453, address: contractAddress });
 
     if (collection.sampleImages.length) {
@@ -80,28 +76,26 @@ export class HighlightIngestor implements MintIngestor {
       throw new MintIngestorError(MintIngestionErrorName.MissingRequiredData, 'Error finding creator');
     }
 
-    const collectionId = collection.id || collection.highlightCollection?.id;
+    const collectionId = collection.id;
 
     if (!collectionId) {
       throw new MintIngestorError(MintIngestionErrorName.MissingRequiredData, 'Collection id not available');
     }
-    const creator = await getHighlightCollectionOwnerDetails(resources, collectionId);
-
     mintBuilder.setCreator({
-      name: creator?.creatorAccountSettings?.displayName || '',
+      name: collection.creatorAccountSettings?.displayName || '',
       walletAddress: collection.creator,
-      imageUrl: creator?.creatorAccountSettings?.displayAvatar,
+      imageUrl: collection.creatorAccountSettings?.displayAvatar,
     });
 
     mintBuilder.setMintOutputContract({ chainId: 8453, address: collection.primaryContract });
 
-    const vectorId = await getHighlightVectorId(resources, collectionId);
+    const vectorId = getHighlightMintVectorId(collection.mintVector);
 
     if (!vectorId) {
       throw new MintIngestorError(MintIngestionErrorName.MissingRequiredData, 'Id not available');
     }
 
-    const totalPriceWei = await getHighlightMintPriceInWei(+vectorId, resources.alchemy);
+    const totalPriceWei = getHighlightVectorPriceInWei(collection.mintVector);
 
     if (!totalPriceWei) {
       throw new MintIngestorError(MintIngestionErrorName.MissingRequiredData, 'Price not available');
@@ -117,13 +111,9 @@ export class HighlightIngestor implements MintIngestor {
       supportsQuantity: true,
     });
 
-    const metadata = await getHighlightMetadata(+vectorId, resources.alchemy);
-
-    if (!metadata) {
-      throw new MintIngestorError(MintIngestionErrorName.MissingRequiredData, 'Missing timestamps');
-    }
-
-    const { startTimestamp, endTimestamp } = metadata;
+    const { mintVector } = collection;
+    const startTimestamp = Math.floor(new Date(mintVector.start).getTime() / 1000);
+    const endTimestamp = mintVector.end ? Math.floor(new Date(mintVector.end).getTime() / 1000) : 1893456000;
 
     const liveDate = +new Date() > startTimestamp * 1000 ? new Date() : new Date(startTimestamp * 1000);
     mintBuilder
@@ -143,7 +133,7 @@ export class HighlightIngestor implements MintIngestor {
     // Example URL: https://highlight.xyz/mint/665fa33f07b3436991e55632
     const splits = url.split('/');
     const id = splits.pop();
-    const chain = splits.pop();
+    splits.pop();
 
     if (!id) {
       throw new MintIngestorError(MintIngestionErrorName.CouldNotResolveMint, 'Url error');

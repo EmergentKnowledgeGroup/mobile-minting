@@ -71,7 +71,7 @@ describe('highlight', function () {
     expect(mintInstructions.priceWei).to.equal('800000000000000');
 
     expect(template.featuredImageUrl).to.equal(
-      'https://img.reservoir.tools/images/v2/base/z9JRSpLYGu7%2BCZoKWtAuAI37ZMpGmBWtUpAQDl1tI6DEJRvIrkDVCqzOxkdek%2BfesLtA3sYS0SXZeU4voi8R9rQD1uumcaPxveg8%2B3UfVgFBR82zeA%2FzrfIHHRUbhHMTK4V08qvpcJ5dRYdYVwRvZPTKTulv78c%2FB6vgLUkdfSX0ND53Mjp2wUysnfKmYO5rOIxPwl1ACpM%2BOQDWOOSOzg%3D%3D',
+      'https://highlight-creator-assets.highlight.xyz/main/image/ecc4d99e-72e5-4bf4-a823-4e8ebca2dce5.png',
     );
 
     if (template.creator) {
@@ -107,7 +107,7 @@ describe('highlight', function () {
     expect(mintInstructions.priceWei).to.equal('800000000000000');
 
     expect(template.featuredImageUrl).to.equal(
-      'https://img.reservoir.tools/images/v2/base/z9JRSpLYGu7%2BCZoKWtAuAKM5v2dthdDNgoFYsopVhfXBHjSfVbMXHiaW1XsdogS5oNzhOcvyJcxoIKiiKqHsNxiXyJX%2B%2BppNtkeQvHYCslZTqG21HhITlOtTV8jhhZhOQdWST4CHb1DA%2B5K8ZAHTSu9b0MV4dWJJsqPVJ439DhVcURxmw1fKJ4pAhC3iCwl1DOXK1xnEOnLO0il04rMAPA%3D%3D',
+      'https://highlight-creator-assets.highlight.xyz/main/image/085fb994-dc1d-4bc3-9c9e-7ab06c024935.gif',
     );
 
     if (template.creator) {

@@ -1,24 +1,26 @@
 import { MintContractOptions, MintIngestorResources } from 'src/lib';
-import { Collection, CollectionByAddress, CollectionByAddress1 } from './types';
+import { Collection, CollectionByAddress, HighlightMintVector } from './types';
 
-export const getHighlightCollectionById = async (
+const HIGHLIGHT_API_URL = 'https://api.highlight.xyz:8080/';
+const NATIVE_ETH_ADDRESS = '0x0000000000000000000000000000000000000000';
+
+const headers = {
+  accept: 'application/json',
+  'content-type': 'application/json',
+};
+
+const getHighlightCollectionDetails = async (
   resources: MintIngestorResources,
-  id: string,
+  collectionId: string,
 ): Promise<Collection | undefined> => {
-  const url = 'https://api.highlight.xyz:8080/';
-
-  const headers = {
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-
   const data = {
     operationName: 'GetCollectionDetails',
     variables: {
-      collectionId: id,
+      collectionId,
+      withEns: true,
     },
     query: `
-      query GetCollectionDetails($collectionId: String!) {
+      query GetCollectionDetails($collectionId: String!, $withEns: Boolean) {
         getPublicCollectionDetails(collectionId: $collectionId) {
           id
           name
@@ -31,129 +33,123 @@ export const getHighlightCollectionById = async (
           status
           baseUri
           onChainBaseUri
+          creatorAddresses {
+            address
+            name
+          }
+          creatorEns
+          creatorAccountSettings(withEns: $withEns) {
+            verified
+            imported
+            displayAvatar
+            displayName
+            walletAddresses
+          }
+          mintVectors {
+            name
+            start
+            end
+            paused
+            price
+            currency
+            chainId
+            onchainMintVectorId
+            paymentCurrency {
+              address
+              decimals
+              symbol
+              type
+              mintFee
+            }
+          }
         }
       }
     `,
   };
 
   try {
-    const resp = await resources.fetcher.post(url, data, { headers });
-    if (!resp.data.data) {
-      throw new Error('Empty response');
-    }
-    return resp.data.data.getPublicCollectionDetails;
+    const resp = await resources.fetcher.post(HIGHLIGHT_API_URL, data, { headers });
+    return resp.data.data?.getPublicCollectionDetails;
   } catch (error) {}
+};
+
+const vectorIdFromOnchainId = (onchainMintVectorId: string): string | undefined => {
+  const vectorId = onchainMintVectorId.split(':').pop();
+  if (!vectorId || !/^\d+$/.test(vectorId)) {
+    return undefined;
+  }
+  return vectorId;
+};
+
+export const getHighlightPrimaryMintVector = (
+  collection: Collection,
+): HighlightMintVector | undefined => {
+  return collection.mintVectors?.find(
+    (vector) =>
+      vector.chainId === 8453 &&
+      !vector.paused &&
+      vector.currency.toLowerCase() === NATIVE_ETH_ADDRESS &&
+      !!vectorIdFromOnchainId(vector.onchainMintVectorId),
+  );
+};
+
+export const getHighlightMintVectorId = (vector: HighlightMintVector): string | undefined => {
+  return vectorIdFromOnchainId(vector.onchainMintVectorId);
+};
+
+export const highlightEthToWei = (amount: string | undefined): bigint => {
+  if (!amount) {
+    return 0n;
+  }
+  const [wholePart, fractionalPart = ''] = amount.split('.');
+  const whole = BigInt(wholePart || '0') * 10n ** 18n;
+  const fractional = BigInt((fractionalPart + '0'.repeat(18)).slice(0, 18));
+  return whole + fractional;
+};
+
+export const getHighlightVectorPriceInWei = (vector: HighlightMintVector): string => {
+  const mintFee = highlightEthToWei(vector.paymentCurrency?.mintFee);
+  const price = highlightEthToWei(vector.price);
+  return (price + mintFee).toString();
+};
+
+export const getHighlightCollectionById = async (
+  resources: MintIngestorResources,
+  id: string,
+): Promise<Collection | undefined> => {
+  return getHighlightCollectionDetails(resources, id);
 };
 
 export const getHighlightCollectionByAddress = async (
   resources: MintIngestorResources,
-  contractOptioons: MintContractOptions,
+  contractOptions: MintContractOptions,
 ): Promise<CollectionByAddress | undefined> => {
   try {
-    const resp = await resources.fetcher(
-      `https://marketplace.highlight.xyz/reservoir/base/collections/v7?id=${contractOptioons.contractAddress}&normalizeRoyalties=false`,
+    const collection = await getHighlightCollectionDetails(
+      resources,
+      `base:${contractOptions.contractAddress}`,
     );
-    const collection1: CollectionByAddress1 = resp.data.collections.find((c: CollectionByAddress) => {
-      return c.id.toLowerCase() === contractOptioons.contractAddress.toLowerCase() && c.chainId === 8453;
-    });
+    if (!collection || collection.chainId !== 8453) {
+      return undefined;
+    }
+    const mintVector = getHighlightPrimaryMintVector(collection);
+    if (!mintVector) {
+      return undefined;
+    }
+    const creator = collection.creatorAddresses?.[0]?.address.toLowerCase() || '';
 
-    const resp2 = await resources.fetcher(
-      `https://marketplace.highlight.xyz/reservoir/base/tokens/v7?collection=${contractOptioons.contractAddress}&limit=1&normalizeRoyalties=false`,
-    );
-    const collection2 = resp2.data.tokens[0];
     return {
-      ...collection1,
-      ...collection2,
+      id: collection.id,
+      chainId: collection.chainId,
+      name: collection.name,
+      description: collection.description,
+      image: collection.collectionImage,
+      sampleImages: [collection.collectionImage],
+      creator,
+      contract: collection.address,
+      primaryContract: collection.address,
+      mintVector,
+      creatorAccountSettings: collection.creatorAccountSettings,
     };
-  } catch (error) {}
-};
-
-export const getHighlightVectorId = async (resources: MintIngestorResources, id: string): Promise<string | undefined> => {
-  const url = 'https://api.highlight.xyz:8080/';
-
-  const headers = {
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-
-  const data = {
-    operationName: 'GetCollectionSaleDetails',
-    variables: {
-      collectionId: `base:${id}`,
-    },
-    query: `
-    query GetCollectionSaleDetails($collectionId: String!) {
-      getPublicCollectionDetails(collectionId: $collectionId) {
-        size
-        mintVectors {
-          name
-          start
-          end
-          paused
-          price
-          currency
-          chainId
-          paymentCurrency {
-            address
-            decimals
-            symbol
-            type
-            mintFee
-          }
-          onchainMintVectorId
-        }
-      }
-    }
-  `,
-  };
-
-  try {
-    const resp = await resources.fetcher.post(url, data, { headers });
-    const vectorString = resp.data.data.getPublicCollectionDetails.mintVectors.find(
-      (c: { chainId: number }) => c.chainId === 8453,
-    ).onchainMintVectorId;
-    const vectorId = vectorString.split(':').pop();
-    return vectorId;
-  } catch (error) {}
-};
-
-export const getHighlightCollectionOwnerDetails = async (resources: MintIngestorResources, id: string) => {
-  const url = 'https://api.highlight.xyz:8080/';
-  const data = {
-    operationName: 'GetCollectionCreatorDetails',
-    variables: {
-      withEns: true,
-      collectionId: `base:${id}`,
-    },
-    query: `query GetCollectionCreatorDetails($collectionId: String!, $withEns: Boolean) {
-    getPublicCollectionDetails(collectionId: $collectionId) {
-      id
-      creatorAddresses {
-        address
-        name
-      }
-      creatorEns
-      creatorAccountSettings(withEns: $withEns) {
-        verified
-        imported
-        displayAvatar
-        displayName
-        walletAddresses
-      }
-    }
-  }`,
-  };
-
-  const headers = {
-    accept: 'application/json',
-    'content-type': 'application/json',
-  };
-
-  try {
-    const resp = await resources.fetcher.post(url, data, { headers });
-    if (resp.data.errors) {
-      throw new Error("Error fetching owner");
-    }
-    return resp.data.data.getPublicCollectionDetails;
   } catch (error) {}
 };
