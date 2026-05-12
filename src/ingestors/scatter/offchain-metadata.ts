@@ -100,9 +100,14 @@ export const findScatterMintOption = async (
       continue;
     }
 
-    const listSupply = await getListSupply(resources, collection.address, inviteList.root);
-    if (listSupply !== undefined && inviteList.list_limit && inviteList.list_limit !== MAX_UINT32) {
-      if (listSupply >= BigInt(inviteList.list_limit)) {
+    const listLimit = inviteList.list_limit;
+    if (listLimit !== null && listLimit !== undefined && listLimit !== MAX_UINT32) {
+      if (listLimit <= 0) {
+        continue;
+      }
+
+      const listSupply = await getListSupply(resources, collection.address, inviteList.root);
+      if (listSupply !== undefined && listSupply >= BigInt(listLimit)) {
         continue;
       }
     }
@@ -286,4 +291,6 @@ const decodeAbiString = (hexValue: string | undefined): string | undefined => {
   return data.subarray(offset + 32, offset + 32 + length).toString('utf8');
 };
 
-const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+const sameAddress = (a: unknown, b: unknown) => {
+  return typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+};

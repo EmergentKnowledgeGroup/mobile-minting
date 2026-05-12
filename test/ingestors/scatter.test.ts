@@ -3,9 +3,22 @@ import { MintTemplateBuilder } from '../../src/lib/builder/mint-template-builder
 import { ScatterIngestor } from '../../src/ingestors/scatter';
 import { basicIngestorTests } from '../shared/basic-ingestor-tests';
 import { expect } from 'chai';
+import { getScatterCollectionBySlug } from '../../src/ingestors/scatter/offchain-metadata';
 import { mintIngestorResources } from '../../src/lib/resources';
 
 const resources = mintIngestorResources();
+const eligibleBaseCollectionSlugs = [
+  'base-mutant-ape-club',
+  'kemonokaki',
+  'farcasterinterns',
+  'nounkes',
+  'world',
+  'toypunks',
+  'base-gorilla-yacht-club',
+  'nozukis',
+  'art-penguins',
+  'based-3d-punks',
+];
 
 describe('Scatter', function () {
   this.timeout(60000);
@@ -36,6 +49,27 @@ describe('Scatter', function () {
       8453: '0x1c1c6c0',
     },
   );
+
+  it('documents Scatter eligibility with 10 prior Base collections over 100 collectors', async function () {
+    const evidence = await Promise.all(
+      eligibleBaseCollectionSlugs.map(async (slug) => {
+        const collection = await getScatterCollectionBySlug(resources, slug);
+        return {
+          slug,
+          chainId: collection?.chain_id,
+          mints: collection?.num_items || 0,
+          owners: collection?.num_owners || 0,
+        };
+      }),
+    );
+
+    const failures = evidence.filter((collection) => {
+      return collection.chainId !== 8453 || collection.mints < 10 || collection.owners <= 100;
+    });
+
+    expect(evidence.length).to.equal(10);
+    expect(failures).to.deep.equal([]);
+  });
 
   it('createMintTemplateForUrl: returns Scatter mint instructions for a Base collection', async function () {
     const ingestor = new ScatterIngestor();
