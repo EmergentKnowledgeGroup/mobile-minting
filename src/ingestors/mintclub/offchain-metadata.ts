@@ -1,6 +1,7 @@
-import { Contract, JsonRpcProvider, getAddress, getCreate2Address, hexlify, keccak256, toUtf8Bytes } from 'ethers';
+import { Contract } from 'alchemy-sdk';
+import { getAddress, getCreate2Address, hexlify, keccak256, toUtf8Bytes } from 'ethers';
 import { MintIngestorResources } from '../../lib/types/mint-ingestor';
-import { MintClubEligibilityDetails, MintClubMetadata, MintClubTokenDetails } from './types';
+import { MintClubEligibilityDetails, MintClubMetadata, MintClubTokenDetails, MintClubTokenInfo } from './types';
 
 export const MINTCLUB_BASE_CHAIN_ID = 8453;
 export const MINTCLUB_BOND_ADDRESS = '0xc5a076cad94176c2996B32d8466Be1cE757FAa27';
@@ -8,7 +9,6 @@ export const MINTCLUB_ZAP_ADDRESS = '0x91523b39813F3F4E406ECe406D0bEAaA9dE251fa'
 export const MINTCLUB_WETH_ADDRESS = '0x4200000000000000000000000000000000000006';
 export const MINTCLUB_ERC1155_IMPLEMENTATION_ADDRESS = '0x6c61918eECcC306D35247338FDcf025af0f6120A';
 
-const BASE_RPC_URL = 'https://mainnet.base.org';
 const MINTCLUB_HOSTS = new Set(['mint.club', 'www.mint.club']);
 
 const BOND_ABI = [
@@ -16,18 +16,6 @@ const BOND_ABI = [
   'function getDetail(address token) view returns (tuple(uint16 mintRoyalty,uint16 burnRoyalty,tuple(address creator,address token,uint8 decimals,string symbol,string name,uint40 createdAt,uint128 currentSupply,uint128 maxSupply,uint128 priceForNextMint,address reserveToken,uint8 reserveDecimals,string reserveSymbol,string reserveName,uint256 reserveBalance) info,tuple(uint128 rangeTo,uint128 price)[] steps) detail)',
   'function getReserveForToken(address token,uint256 tokensToMint) view returns (uint256 reserveAmount,uint256 royalty)',
 ];
-
-const provider = new JsonRpcProvider(
-  BASE_RPC_URL,
-  {
-    chainId: MINTCLUB_BASE_CHAIN_ID,
-    name: 'base',
-  },
-  {
-    staticNetwork: true,
-  },
-);
-const bondContract = new Contract(MINTCLUB_BOND_ADDRESS, BOND_ABI, provider);
 
 export const mintClubUrlForSymbol = (symbol: string): string => {
   return `https://mint.club/nft/base/${encodeURIComponent(symbol)}`;
@@ -90,38 +78,27 @@ export const getMintClubTokenDetails = async (
   }
 
   try {
-    const exists = await withRetry(() => bondContract.exists(normalizedAddress));
+    const bondContract = await getMintClubBondContract(resources);
+    const exists = await readTokenExists(bondContract, normalizedAddress);
     if (!exists) {
       return;
     }
 
-    const detail = await withRetry(() => bondContract.getDetail(normalizedAddress));
-    const reserve = await withRetry(() => bondContract.getReserveForToken(normalizedAddress, 1));
-    const info = detail.info;
+    const detail = await readTokenDetail(bondContract, normalizedAddress);
+    const info = tokenInfoFromDetail(detail);
+    if (!isMintableWethErc1155(info)) {
+      return;
+    }
+
+    const reserve = await readReserveQuote(bondContract, normalizedAddress);
     const tokenDetails: MintClubTokenDetails = {
       mintRoyalty: Number(detail.mintRoyalty),
       burnRoyalty: Number(detail.burnRoyalty),
-      info: {
-        creator: info.creator,
-        token: info.token,
-        decimals: Number(info.decimals),
-        symbol: info.symbol,
-        name: info.name,
-        createdAt: Number(info.createdAt),
-        currentSupply: BigInt(info.currentSupply),
-        maxSupply: BigInt(info.maxSupply),
-        priceForNextMint: BigInt(info.priceForNextMint),
-        reserveToken: info.reserveToken,
-        reserveSymbol: info.reserveSymbol,
-      },
-      reserveAmount: BigInt(reserve.reserveAmount),
-      royaltyAmount: BigInt(reserve.royalty),
+      info,
+      reserveAmount: reserve.reserveAmount,
+      royaltyAmount: reserve.royaltyAmount,
       metadata: await getMintClubMetadata(resources, normalizedAddress),
     };
-
-    if (!isMintableWethErc1155(tokenDetails)) {
-      return;
-    }
 
     return tokenDetails;
   } catch (error) {
@@ -130,6 +107,7 @@ export const getMintClubTokenDetails = async (
 };
 
 export const getMintClubEligibilityDetails = async (
+  resources: MintIngestorResources,
   tokenAddress: string,
 ): Promise<MintClubEligibilityDetails | undefined> => {
   const normalizedAddress = normalizeAddress(tokenAddress);
@@ -138,17 +116,18 @@ export const getMintClubEligibilityDetails = async (
   }
 
   try {
-    const detail = await withRetry(() => bondContract.getDetail(normalizedAddress));
-    const info = detail.info;
-    const details = {
+    const bondContract = await getMintClubBondContract(resources);
+    const detail = await readTokenDetail(bondContract, normalizedAddress);
+    const info = tokenInfoFromDetail(detail);
+    const details: MintClubEligibilityDetails = {
       token: info.token,
       symbol: info.symbol,
-      currentSupply: BigInt(info.currentSupply),
-      maxSupply: BigInt(info.maxSupply),
+      currentSupply: info.currentSupply,
+      maxSupply: info.maxSupply,
       reserveToken: info.reserveToken,
     };
 
-    if (Number(info.decimals) !== 0 || !sameAddress(info.reserveToken, MINTCLUB_WETH_ADDRESS)) {
+    if (info.decimals !== 0 || !sameAddress(info.reserveToken, MINTCLUB_WETH_ADDRESS)) {
       return;
     }
 
@@ -187,17 +166,17 @@ export const mintClubDescription = (details: MintClubTokenDetails): string => {
   return `${details.info.name} (${details.info.symbol}) is a Bonding Curved ERC-1155 token on Base Network.`;
 };
 
-export const isMintableWethErc1155 = (details: MintClubTokenDetails): boolean => {
-  if (details.info.decimals !== 0) {
+export const isMintableWethErc1155 = (info: MintClubTokenInfo): boolean => {
+  if (info.decimals !== 0) {
     return false;
   }
-  if (!sameAddress(details.info.reserveToken, MINTCLUB_WETH_ADDRESS)) {
+  if (!sameAddress(info.reserveToken, MINTCLUB_WETH_ADDRESS)) {
     return false;
   }
-  if (details.info.currentSupply <= 10n) {
+  if (info.currentSupply <= 10n) {
     return false;
   }
-  if (details.info.maxSupply > 0n && details.info.currentSupply >= details.info.maxSupply) {
+  if (info.maxSupply > 0n && info.currentSupply >= info.maxSupply) {
     return false;
   }
   return true;
@@ -215,6 +194,56 @@ const normalizeAddress = (address: string): string | undefined => {
   } catch (error) {
     return;
   }
+};
+
+const getMintClubBondContract = async (resources: MintIngestorResources): Promise<Contract> => {
+  const ethersProvider = await resources.alchemy.config.getProvider();
+  return new Contract(MINTCLUB_BOND_ADDRESS, BOND_ABI, ethersProvider);
+};
+
+const readTokenExists = async (bondContract: Contract, tokenAddress: string): Promise<boolean> => {
+  const exists = await withRetry(() => bondContract.functions.exists(tokenAddress));
+  return !!exists[0];
+};
+
+const readTokenDetail = async (bondContract: Contract, tokenAddress: string): Promise<any> => {
+  const detail = await withRetry(() => bondContract.functions.getDetail(tokenAddress));
+  return detail[0];
+};
+
+const readReserveQuote = async (
+  bondContract: Contract,
+  tokenAddress: string,
+): Promise<{ reserveAmount: bigint; royaltyAmount: bigint }> => {
+  const reserve = await withRetry(() => bondContract.functions.getReserveForToken(tokenAddress, 1));
+  return {
+    reserveAmount: toBigInt(reserve.reserveAmount || reserve[0]),
+    royaltyAmount: toBigInt(reserve.royalty || reserve[1]),
+  };
+};
+
+const tokenInfoFromDetail = (detail: any): MintClubTokenInfo => {
+  const info = detail.info;
+  return {
+    creator: info.creator,
+    token: info.token,
+    decimals: Number(info.decimals),
+    symbol: info.symbol,
+    name: info.name,
+    createdAt: Number(info.createdAt),
+    currentSupply: toBigInt(info.currentSupply),
+    maxSupply: toBigInt(info.maxSupply),
+    priceForNextMint: toBigInt(info.priceForNextMint),
+    reserveToken: info.reserveToken,
+    reserveSymbol: info.reserveSymbol,
+  };
+};
+
+const toBigInt = (value: unknown): bigint => {
+  if (typeof value === 'bigint') {
+    return value;
+  }
+  return BigInt(String(value || '0'));
 };
 
 const withRetry = async <T>(read: () => Promise<T>, attempt = 0): Promise<T> => {
