@@ -188,10 +188,24 @@ const searchScatterCollections = async (
         input: JSON.stringify(input),
       },
     });
-    return response.data?.[0]?.result?.data?.json?.collections || [];
+    const collections = response.data?.[0]?.result?.data?.json?.collections;
+    if (!Array.isArray(collections)) {
+      return [];
+    }
+
+    return collections.filter(isScatterSearchCollection);
   } catch (error) {
     return [];
   }
+};
+
+const isScatterSearchCollection = (collection: unknown): collection is ScatterCollection => {
+  if (!collection || typeof collection !== 'object') {
+    return false;
+  }
+
+  const value = collection as Partial<Record<keyof ScatterCollection, unknown>>;
+  return typeof value.slug === 'string' && typeof value.address === 'string';
 };
 
 const isNativePublicInviteList = (inviteList: ScatterInviteList) => {
